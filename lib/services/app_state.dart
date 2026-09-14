@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../database/app_database.dart';
 import '../models/movement.dart';
+import 'notification_service.dart';
 
 class AppState extends ChangeNotifier {
   // Se mantiene temporalmente para migrar instalaciones anteriores.
@@ -12,13 +13,20 @@ class AppState extends ChangeNotifier {
   static const _defaultPaymentKey = 'default_payment';
   static const _remindIncomeKey = 'remind_income';
   static const _remindCloseKey = 'remind_close';
+  static const _reminderIntervalKey = 'reminder_interval_minutes';
+  static const _closeHourKey = 'close_hour';
+  static const _closeMinuteKey = 'close_minute';
+  static const _processedYapeEventIdsKey = 'processed_yape_event_ids';
 
   final List<Movement> _movements = [];
   String name = 'Carlos Ramírez';
   String vehicle = 'Honda Wave';
   String defaultPayment = 'Efectivo';
-  bool remindIncome = true;
-  bool remindClose = true;
+  bool remindIncome = false;
+  bool remindClose = false;
+  int reminderIntervalMinutes = 90;
+  int closeHour = 21;
+  int closeMinute = 0;
   bool loaded = false;
   String? loadError;
 
@@ -39,8 +47,16 @@ class AppState extends ChangeNotifier {
       name = prefs.getString(_nameKey) ?? name;
       vehicle = prefs.getString(_vehicleKey) ?? vehicle;
       defaultPayment = prefs.getString(_defaultPaymentKey) ?? defaultPayment;
-      remindIncome = prefs.getBool(_remindIncomeKey) ?? true;
-      remindClose = prefs.getBool(_remindCloseKey) ?? true;
+      remindIncome = prefs.getBool(_remindIncomeKey) ?? false;
+      remindClose = prefs.getBool(_remindCloseKey) ?? false;
+      reminderIntervalMinutes = prefs.getInt(_reminderIntervalKey) ?? 90;
+      // La opción de 1 minuto existía solo para validar el piloto.
+      if (reminderIntervalMinutes == 1) {
+        reminderIntervalMinutes = 90;
+        await prefs.setInt(_reminderIntervalKey, reminderIntervalMinutes);
+      }
+      closeHour = prefs.getInt(_closeHourKey) ?? 21;
+      closeMinute = prefs.getInt(_closeMinuteKey) ?? 0;
 
       debugPrint('AppState.load(): intentando abrir SQLite...');
 
@@ -79,6 +95,13 @@ class AppState extends ChangeNotifier {
         debugPrint('AppState.load(): migración completada');
       }
 
+      try {
+        await _refreshScheduledRemindersOnLoad();
+      } catch (error, stackTrace) {
+        debugPrint('Aviso: no se pudieron restaurar recordatorios: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+
       debugPrint('AppState.load(): completado correctamente');
     } catch (error, stackTrace) {
       loadError = error.toString();
@@ -105,7 +128,55 @@ class AppState extends ChangeNotifier {
     await AppDatabase.instance.insertMovement(movement);
     _movements.add(movement);
     _sortMovementsDescending();
+    try {
+      await _afterNewMovement(movement);
+    } catch (error) {
+      debugPrint('Aviso: no se pudo programar el recordatorio: $error');
+    }
     notifyListeners();
+  }
+
+
+  Future<bool> addDetectedYapeIncome({
+    required double amount,
+    required String eventId,
+    required DateTime detectedAt,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final processed =
+        prefs.getStringList(_processedYapeEventIdsKey) ?? <String>[];
+
+    if (processed.contains(eventId)) {
+      return false;
+    }
+
+    final movement = Movement(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      type: MovementType.income,
+      amount: amount,
+      category: 'Servicio',
+      paymentMethod: 'Yape',
+      date: detectedAt,
+    );
+
+    await AppDatabase.instance.insertMovement(movement);
+    _movements.add(movement);
+    _sortMovementsDescending();
+
+    processed.add(eventId);
+    if (processed.length > 100) {
+      processed.removeRange(0, processed.length - 100);
+    }
+    await prefs.setStringList(_processedYapeEventIdsKey, processed);
+
+    try {
+      await _afterNewMovement(movement);
+    } catch (error) {
+      debugPrint('Aviso: no se pudo programar el recordatorio: $error');
+    }
+
+    notifyListeners();
+    return true;
   }
 
   Future<void> addExpense(
@@ -125,6 +196,11 @@ class AppState extends ChangeNotifier {
     await AppDatabase.instance.insertMovement(movement);
     _movements.add(movement);
     _sortMovementsDescending();
+    try {
+      await _afterNewMovement(movement);
+    } catch (error) {
+      debugPrint('Aviso: no se pudo programar el recordatorio: $error');
+    }
     notifyListeners();
   }
 
@@ -136,6 +212,7 @@ class AppState extends ChangeNotifier {
 
     _movements[index] = movement;
     _sortMovementsDescending();
+    await _refreshDailyCloseReminder();
     notifyListeners();
   }
 
@@ -143,6 +220,13 @@ class AppState extends ChangeNotifier {
     await AppDatabase.instance.deleteMovement(id);
     _movements.removeWhere((movement) => movement.id == id);
     _sortMovementsDescending();
+
+    if (forToday().isEmpty) {
+      await NotificationService.instance.cancelAllMotoCajaReminders();
+    } else {
+      await _refreshDailyCloseReminder();
+    }
+
     notifyListeners();
   }
 
@@ -171,6 +255,19 @@ class AppState extends ChangeNotifier {
     remindIncome = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_remindIncomeKey, value);
+
+    if (!value) {
+      await NotificationService.instance.cancelInactivityReminder();
+    } else {
+      final today = forToday();
+      if (today.isNotEmpty) {
+        await NotificationService.instance.scheduleInactivityReminder(
+          lastMovementAt: today.first.date,
+          intervalMinutes: reminderIntervalMinutes,
+        );
+      }
+    }
+
     notifyListeners();
   }
 
@@ -178,7 +275,109 @@ class AppState extends ChangeNotifier {
     remindClose = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_remindCloseKey, value);
+
+    if (!value) {
+      await NotificationService.instance.cancelDailyClose();
+    } else {
+      await _refreshDailyCloseReminder();
+    }
+
     notifyListeners();
+  }
+
+  Future<void> setReminderIntervalMinutes(int minutes) async {
+    reminderIntervalMinutes = minutes;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_reminderIntervalKey, minutes);
+
+    if (remindIncome) {
+      final today = forToday();
+      if (today.isNotEmpty) {
+        await NotificationService.instance.scheduleInactivityReminder(
+          lastMovementAt: today.first.date,
+          intervalMinutes: reminderIntervalMinutes,
+        );
+      }
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> setCloseTime({required int hour, required int minute}) async {
+    closeHour = hour;
+    closeMinute = minute;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_closeHourKey, hour);
+    await prefs.setInt(_closeMinuteKey, minute);
+
+    if (remindClose) {
+      await _refreshDailyCloseReminder();
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> _afterNewMovement(Movement movement) async {
+    final notificationsEnabled =
+        await NotificationService.instance.areNotificationsEnabled();
+    if (!notificationsEnabled) return;
+
+    if (remindIncome) {
+      await NotificationService.instance.scheduleInactivityReminder(
+        lastMovementAt: movement.date,
+        intervalMinutes: reminderIntervalMinutes,
+      );
+    }
+
+    if (remindClose) {
+      await _refreshDailyCloseReminder();
+    }
+  }
+
+  Future<void> _refreshDailyCloseReminder() async {
+    final today = forToday();
+
+    if (!remindClose || today.isEmpty) {
+      await NotificationService.instance.cancelDailyClose();
+      return;
+    }
+
+    final notificationsEnabled =
+        await NotificationService.instance.areNotificationsEnabled();
+    if (!notificationsEnabled) return;
+
+    await NotificationService.instance.scheduleDailyClose(
+      activityDate: DateTime.now(),
+      hour: closeHour,
+      minute: closeMinute,
+      services: servicesOf(today),
+      income: incomeOf(today),
+      expenses: expensesOf(today),
+    );
+  }
+
+  Future<void> _refreshScheduledRemindersOnLoad() async {
+    final notificationsEnabled =
+        await NotificationService.instance.areNotificationsEnabled();
+    if (!notificationsEnabled) return;
+
+    final today = forToday();
+    if (today.isEmpty) {
+      await NotificationService.instance.cancelAllMotoCajaReminders();
+      return;
+    }
+
+    if (remindIncome) {
+      await NotificationService.instance.scheduleInactivityReminder(
+        lastMovementAt: today.first.date,
+        intervalMinutes: reminderIntervalMinutes,
+      );
+    }
+
+    if (remindClose) {
+      await _refreshDailyCloseReminder();
+    }
   }
 
   static bool sameDay(DateTime a, DateTime b) =>
