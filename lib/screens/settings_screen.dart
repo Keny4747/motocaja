@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../database/app_database.dart';
 import '../services/app_state.dart';
+import '../services/backup_service.dart';
 import '../services/notification_service.dart';
 import '../services/yape_notification_service.dart';
 import '../theme/app_theme.dart';
@@ -18,6 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _yapeDetectionEnabled = false;
   bool _yapeAccessGranted = false;
   YapeDiagnostic? _lastYapeDiagnostic;
+  bool _dataOperationInProgress = false;
 
   @override
   void initState() {
@@ -201,16 +205,6 @@ class _SettingsScreenState extends State<SettingsScreen>
             onTap: _openYapeAccessSettings,
           ),
           const SizedBox(height: 8),
-          _SettingTile(
-            icon: Icons.bug_report_outlined,
-            title: 'Última notificación Yape detectada',
-            subtitle:
-                _lastYapeDiagnostic == null || _lastYapeDiagnostic!.isEmpty
-                ? 'Aún no hay una notificación para analizar'
-                : 'Toca para revisar el formato recibido',
-            onTap: _showLastYapeDiagnostic,
-          ),
-          const SizedBox(height: 8),
           const _InfoCard(
             text:
                 'MotoCaja solo observa notificaciones de Yape cuando activas '
@@ -219,11 +213,58 @@ class _SettingsScreenState extends State<SettingsScreen>
                 'te pediremos confirmación.',
           ),
           const SizedBox(height: 16),
-          const _Header('Datos'),
-          const _SettingTile(
-            icon: Icons.download_outlined,
-            title: 'Exportar información',
+          const _Header('Datos y respaldo'),
+          _SettingTile(
+            icon: Icons.backup_outlined,
+            title: 'Crear respaldo',
+            subtitle: 'Movimientos, perfil, tarifas y preferencias',
+            onTap: _dataOperationInProgress
+                ? null
+                : () => _exportBackup(context, state),
           ),
+          const SizedBox(height: 8),
+          _SettingTile(
+            icon: Icons.settings_backup_restore_rounded,
+            title: 'Restaurar respaldo',
+            subtitle: 'Reemplaza los datos actuales con un archivo de MotoCaja',
+            onTap: _dataOperationInProgress
+                ? null
+                : () => _restoreBackup(context, state),
+          ),
+          const SizedBox(height: 8),
+          const _InfoCard(
+            text:
+                'El respaldo es un archivo local. Contiene información financiera; guárdalo en un lugar seguro. Restaurarlo reemplaza los movimientos actuales.',
+          ),
+          if (kDebugMode) ...[
+            const SizedBox(height: 16),
+            const _Header('Tutorial'),
+            /*_SettingTile(
+              icon: Icons.bug_report_outlined,
+              title: 'Última notificación Yape detectada',
+              subtitle:
+                  _lastYapeDiagnostic == null || _lastYapeDiagnostic!.isEmpty
+                  ? 'Aún no hay una notificación para analizar'
+                  : 'Toca para revisar el formato recibido',
+              onTap: _showLastYapeDiagnostic,
+            ),
+            
+            const SizedBox(height: 8),
+            _SettingTile(
+              icon: Icons.health_and_safety_outlined,
+              title: 'Estado técnico',
+              subtitle: 'SQLite, backup, permisos y cantidad de movimientos',
+              onTap: () => _showDeveloperStatus(context, state),
+            )
+            */
+            const SizedBox(height: 8),
+            _SettingTile(
+              icon: Icons.replay_rounded,
+              title: 'Repetir onboarding',
+              subtitle: '',
+              onTap: () => _resetOnboardingForDebug(context, state),
+            ),
+          ],
           const SizedBox(height: 16),
           const _Header('Acerca de'),
           const _SettingTile(
@@ -234,6 +275,175 @@ class _SettingsScreenState extends State<SettingsScreen>
         ],
       ),
     );
+  }
+
+  Future<void> _exportBackup(BuildContext context, AppState state) async {
+    setState(() => _dataOperationInProgress = true);
+
+    try {
+      final backup = state.createBackupData(
+        yapeDetectionEnabled: _yapeDetectionEnabled,
+      );
+      final uri = await BackupService.instance.exportBackup(backup);
+      if (uri == null || !mounted) return;
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Respaldo guardado correctamente.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo crear el respaldo: $error'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _dataOperationInProgress = false);
+    }
+  }
+
+  Future<void> _restoreBackup(BuildContext context, AppState state) async {
+    setState(() => _dataOperationInProgress = true);
+
+    try {
+      final backup = await BackupService.instance.pickBackup();
+      if (backup == null || !mounted) return;
+
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Restaurar respaldo'),
+          content: Text(
+            'Se encontraron ${backup.movements.length} movimientos.\n\n'
+            'Perfil: ${backup.name.isEmpty ? 'Sin nombre' : backup.name}\n'
+            'Creado: ${_backupDateLabel(backup.exportedAt)}\n\n'
+            'Los movimientos y preferencias actuales serán reemplazados. '
+            'Esta acción no se puede deshacer desde MotoCaja.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Restaurar'),
+            ),
+          ],
+        ),
+      );
+
+      if (accepted != true || !mounted) return;
+
+      await state.restoreBackup(backup);
+      await YapeNotificationService.instance.setDetectionEnabled(
+        backup.yapeDetectionEnabled,
+      );
+      await _refreshYapeStatus();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              'Respaldo restaurado: ${backup.movements.length} movimientos.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } on FormatException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo restaurar el respaldo: $error'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _dataOperationInProgress = false);
+    }
+  }
+
+  Future<void> _showDeveloperStatus(
+    BuildContext context,
+    AppState state,
+  ) async {
+    final notifications = await NotificationService.instance
+        .areNotificationsEnabled();
+    final yapeAccess = await YapeNotificationService.instance
+        .isNotificationAccessGranted();
+
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Estado técnico'),
+        content: SelectableText(
+          'Movimientos: ${state.movements.length}\n'
+          'SQLite schema: ${AppDatabase.schemaVersion}\n'
+          'Backup schema: ${BackupData.currentVersion}\n'
+          'Notificaciones: ${notifications ? 'OK' : 'Sin permiso'}\n'
+          'Acceso Yape: ${yapeAccess ? 'OK' : 'Sin permiso'}\n'
+          'Onboarding: ${state.onboardingCompleted ? 'Completo' : 'Pendiente'}',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _resetOnboardingForDebug(
+    BuildContext context,
+    AppState state,
+  ) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Repetir onboarding'),
+        content: const Text(
+          'Esto no borra movimientos ni preferencias. Solo vuelve a mostrar el flujo inicial para pruebas.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Repetir'),
+          ),
+        ],
+      ),
+    );
+
+    if (accepted == true) {
+      await state.resetOnboardingForDebug();
+    }
+  }
+
+  String _backupDateLabel(DateTime date) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(date.day)}/${two(date.month)}/${date.year} '
+        '${two(date.hour)}:${two(date.minute)}';
   }
 
   Future<void> _testNotifications(BuildContext context) async {

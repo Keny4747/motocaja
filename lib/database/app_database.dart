@@ -14,6 +14,8 @@ class AppDatabase {
 
   static const int _databaseVersion = 2;
 
+  static int get schemaVersion => _databaseVersion;
+
   static const String movementsTable = 'movements';
 
   Future<Database> get database async {
@@ -117,6 +119,25 @@ class AppDatabase {
     final db = await database;
 
     await db.delete(movementsTable, where: 'id = ?', whereArgs: [id]);
+  }
+
+
+  Future<void> replaceAllMovements(List<Movement> movements) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      await txn.delete(movementsTable);
+
+      final batch = txn.batch();
+      for (final movement in movements) {
+        batch.insert(
+          movementsTable,
+          movement.toDatabaseMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   Future<void> deleteAllMovements() async {
