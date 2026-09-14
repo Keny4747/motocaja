@@ -4,10 +4,25 @@ import 'package:provider/provider.dart';
 import 'screens/main_shell.dart';
 import 'screens/startup_screen.dart';
 import 'services/app_state.dart';
+import 'services/notification_service.dart';
+import 'services/yape_notification_service.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    await NotificationService.instance.initialize();
+  } catch (error) {
+    debugPrint('NotificationService.initialize(): $error');
+  }
+
+  try {
+    await YapeNotificationService.instance.initialize();
+  } catch (error) {
+    debugPrint('YapeNotificationService.initialize(): $error');
+  }
+
   runApp(const MotoCajaApp());
 }
 
