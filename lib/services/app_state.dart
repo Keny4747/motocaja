@@ -17,11 +17,13 @@ class AppState extends ChangeNotifier {
   static const _closeHourKey = 'close_hour';
   static const _closeMinuteKey = 'close_minute';
   static const _processedYapeEventIdsKey = 'processed_yape_event_ids';
+  static const _frequentRatesKey = 'frequent_rates';
 
   final List<Movement> _movements = [];
   String name = 'Carlos Ramírez';
   String vehicle = 'Honda Wave';
   String defaultPayment = 'Efectivo';
+  final List<double> _frequentRates = [5, 7, 8, 10];
   bool remindIncome = false;
   bool remindClose = false;
   int reminderIntervalMinutes = 90;
@@ -31,6 +33,7 @@ class AppState extends ChangeNotifier {
   String? loadError;
 
   List<Movement> get movements => List.unmodifiable(_movements);
+  List<double> get frequentRates => List.unmodifiable(_frequentRates);
 
   void _sortMovementsDescending() {
     _movements.sort((a, b) => b.date.compareTo(a.date));
@@ -47,6 +50,21 @@ class AppState extends ChangeNotifier {
       name = prefs.getString(_nameKey) ?? name;
       vehicle = prefs.getString(_vehicleKey) ?? vehicle;
       defaultPayment = prefs.getString(_defaultPaymentKey) ?? defaultPayment;
+      final savedRates = prefs.getStringList(_frequentRatesKey);
+      if (savedRates != null) {
+        final parsedRates = savedRates
+            .map((value) => double.tryParse(value))
+            .whereType<double>()
+            .where((value) => value > 0)
+            .toSet()
+            .toList()
+          ..sort();
+        if (parsedRates.isNotEmpty) {
+          _frequentRates
+            ..clear()
+            ..addAll(parsedRates.take(6));
+        }
+      }
       remindIncome = prefs.getBool(_remindIncomeKey) ?? false;
       remindClose = prefs.getBool(_remindCloseKey) ?? false;
       reminderIntervalMinutes = prefs.getInt(_reminderIntervalKey) ?? 90;
@@ -251,6 +269,30 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setFrequentRates(List<double> values) async {
+    final sanitized = values
+        .where((value) => value.isFinite && value > 0)
+        .toSet()
+        .toList()
+      ..sort();
+
+    if (sanitized.isEmpty || sanitized.length > 6) {
+      throw ArgumentError('Debes configurar entre 1 y 6 tarifas válidas.');
+    }
+
+    _frequentRates
+      ..clear()
+      ..addAll(sanitized);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _frequentRatesKey,
+      _frequentRates.map((value) => value.toString()).toList(),
+    );
+
+    notifyListeners();
+  }
+
   Future<void> setReminderIncome(bool value) async {
     remindIncome = value;
     final prefs = await SharedPreferences.getInstance();
@@ -383,8 +425,10 @@ class AppState extends ChangeNotifier {
   static bool sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  List<Movement> forToday() =>
-      _movements.where((m) => sameDay(m.date, DateTime.now())).toList();
+  List<Movement> forDate(DateTime date) =>
+      _movements.where((m) => sameDay(m.date, date)).toList();
+
+  List<Movement> forToday() => forDate(DateTime.now());
 
   List<Movement> from(DateTime start) =>
       _movements.where((m) => !m.date.isBefore(start)).toList();

@@ -71,13 +71,15 @@ class _SummaryScreenState extends State<SummaryScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          _PeriodNavigator(
-            label: _periodLabel(summary),
-            canGoNext: _canGoNext(),
-            onPrevious: () => _shiftPeriod(-1),
-            onNext: _canGoNext() ? () => _shiftPeriod(1) : null,
-            onCalendar: _pickDate,
+          const SizedBox(height: 12),
+          Text(
+            _periodLabel(summary),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 12),
           Container(
@@ -233,70 +235,6 @@ class _SummaryScreenState extends State<SummaryScreen> {
     });
   }
 
-  void _shiftPeriod(int direction) {
-    final current = _selectedDate;
-    DateTime target;
-
-    switch (_period) {
-      case ReportPeriod.day:
-        target = current.add(Duration(days: direction));
-        break;
-      case ReportPeriod.sevenDays:
-        target = current.add(Duration(days: 7 * direction));
-        break;
-      case ReportPeriod.month:
-        target = DateTime(
-          current.year,
-          current.month + direction,
-          1,
-        );
-        break;
-    }
-
-    final today = _normalize(DateTime.now());
-    if (target.isAfter(today)) {
-      target = today;
-    }
-
-    setState(() {
-      _selectedDate = target;
-    });
-  }
-
-  Future<void> _pickDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate.isAfter(now) ? now : _selectedDate,
-      firstDate: DateTime(2020, 1, 1),
-      lastDate: now,
-      helpText: 'Selecciona una fecha',
-      cancelText: 'Cancelar',
-      confirmText: 'Aceptar',
-    );
-
-    if (picked == null || !mounted) return;
-
-    setState(() {
-      _selectedDate = _normalize(picked);
-    });
-  }
-
-  bool _canGoNext() {
-    final now = DateTime.now();
-    final today = _normalize(now);
-
-    switch (_period) {
-      case ReportPeriod.day:
-      case ReportPeriod.sevenDays:
-        return _normalize(_selectedDate).isBefore(today);
-      case ReportPeriod.month:
-        return _selectedDate.year < now.year ||
-            (_selectedDate.year == now.year &&
-                _selectedDate.month < now.month);
-    }
-  }
-
   Future<void> _exportPdf(ReportSummary summary) async {
     setState(() {
       _exportingPdf = true;
@@ -373,78 +311,6 @@ class _SummaryScreenState extends State<SummaryScreen> {
       'Noviembre',
       'Diciembre',
     ][month - 1];
-  }
-}
-
-class _PeriodNavigator extends StatelessWidget {
-  final String label;
-  final bool canGoNext;
-  final VoidCallback onPrevious;
-  final VoidCallback? onNext;
-  final VoidCallback onCalendar;
-
-  const _PeriodNavigator({
-    required this.label,
-    required this.canGoNext,
-    required this.onPrevious,
-    required this.onNext,
-    required this.onCalendar,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: 'Periodo anterior',
-            onPressed: onPrevious,
-            icon: const Icon(Icons.chevron_left),
-          ),
-          Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: onCalendar,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.calendar_month_outlined,
-                      size: 18,
-                      color: AppColors.navy,
-                    ),
-                    const SizedBox(width: 7),
-                    Flexible(
-                      child: Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.navy,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Periodo siguiente',
-            onPressed: canGoNext ? onNext : null,
-            icon: const Icon(Icons.chevron_right),
-          ),
-        ],
-      ),
-    );
   }
 }
 

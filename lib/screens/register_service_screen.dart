@@ -14,11 +14,11 @@ class RegisterServiceScreen extends StatefulWidget {
 }
 
 class _RegisterServiceScreenState extends State<RegisterServiceScreen> {
-  double? selectedAmount = 7;
+  double? selectedAmount;
   final otherController = TextEditingController();
   String payment = 'Efectivo';
   bool saving = false;
-  bool _defaultPaymentLoaded = false;
+  bool _initialPreferencesLoaded = false;
 
   double get amount =>
       double.tryParse(otherController.text.replaceAll(',', '.')) ??
@@ -28,9 +28,14 @@ class _RegisterServiceScreenState extends State<RegisterServiceScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_defaultPaymentLoaded) {
-      payment = context.read<AppState>().defaultPayment;
-      _defaultPaymentLoaded = true;
+    if (!_initialPreferencesLoaded) {
+      final state = context.read<AppState>();
+      payment = state.defaultPayment;
+      final rates = state.frequentRates;
+      if (rates.isNotEmpty) {
+        selectedAmount = rates.contains(7) ? 7 : rates.first;
+      }
+      _initialPreferencesLoaded = true;
     }
   }
 
@@ -68,8 +73,14 @@ class _RegisterServiceScreenState extends State<RegisterServiceScreen> {
     }
   }
 
+  String _rateLabel(double value) => value == value.roundToDouble()
+      ? value.toInt().toString()
+      : value.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+
   @override
   Widget build(BuildContext context) {
+    final frequentRates = context.watch<AppState>().frequentRates;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Registrar servicio')),
       body: SafeArea(
@@ -86,14 +97,14 @@ class _RegisterServiceScreenState extends State<RegisterServiceScreen> {
                 mainAxisSpacing: 10,
                 crossAxisSpacing: 10,
                 childAspectRatio: 2.7,
-                children: [5, 7, 8, 10].map((value) {
+                children: frequentRates.map((value) {
                   final selected =
                       selectedAmount == value && otherController.text.isEmpty;
                   return InkWell(
                     onTap: saving
                         ? null
                         : () => setState(() {
-                            selectedAmount = value.toDouble();
+                            selectedAmount = value;
                             otherController.clear();
                           }),
                     borderRadius: BorderRadius.circular(10),
@@ -112,7 +123,7 @@ class _RegisterServiceScreenState extends State<RegisterServiceScreen> {
                         ),
                       ),
                       child: Text(
-                        'S/ $value',
+                        'S/ ${_rateLabel(value)}',
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 16,
