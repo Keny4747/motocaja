@@ -17,7 +17,7 @@ La configuración se restaura después de la tabla y se persiste en SharedPrefer
 
 En builds debug, Configuración muestra una sección `Desarrollo` con:
 
-- último diagnóstico de notificación Yape;
+- último diagnóstico de notificación de pago;
 - estado técnico de SQLite/backup/permisos;
 - opción para repetir onboarding sin borrar movimientos.
 
@@ -29,7 +29,7 @@ No usar nombres o motos reales como valores predeterminados. Los defaults son ge
 
 ## Logs
 
-Actualmente hay `debugPrint()` en inicialización, migraciones y recordatorios. Antes de agregar telemetría remota, definir explícitamente qué información puede salir del dispositivo. No registrar contenido completo de notificaciones Yape en producción.
+Actualmente hay `debugPrint()` en inicialización, migraciones y recordatorios. Antes de agregar telemetría remota, definir explícitamente qué información puede salir del dispositivo. No registrar contenido completo de notificaciones de pago en producción.
 
 ## IDs de movimientos
 
@@ -49,9 +49,9 @@ El backup v1 es JSON legible. Para un piloto local es práctico, pero si se dist
 - `flutter test`
 - prueba de instalación limpia y onboarding
 - crear y restaurar un backup real
-- probar Yape con app abierta, en segundo plano y tras reinicio
+- probar Yape y Plin con app abierta, en segundo plano y tras reinicio
 - probar notificaciones con permisos concedidos/denegados
-- validar PDF diario
+- validar PDF de Día, Semana y Mes
 - verificar edición/eliminación y orden de movimientos
 - probar cambio de fecha/mes alrededor de fin de mes y año bisiesto
 - generar keystore de release y guardarlo fuera del repositorio

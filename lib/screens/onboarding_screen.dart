@@ -511,7 +511,7 @@ class _PreferencesStep extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text(
-            'La detección inteligente de Yape se activa por separado desde Configuración porque Android requiere un permiso especial.',
+            'La detección inteligente de Yape y Plin se activa por separado desde Configuración porque Android requiere un permiso especial.',
             style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.4),
           ),
           const SizedBox(height: 30),

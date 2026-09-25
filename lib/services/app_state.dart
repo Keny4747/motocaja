@@ -17,7 +17,9 @@ class AppState extends ChangeNotifier {
   static const _reminderIntervalKey = 'reminder_interval_minutes';
   static const _closeHourKey = 'close_hour';
   static const _closeMinuteKey = 'close_minute';
-  static const _processedYapeEventIdsKey = 'processed_yape_event_ids';
+  static const _processedPaymentEventIdsKey = 'processed_yape_event_ids';
+  static const _lastDetectedPaymentAtKey = 'last_detected_payment_at';
+  static const _lastAlertsViewedAtKey = 'last_alerts_viewed_at';
   static const _frequentRatesKey = 'frequent_rates';
   static const _onboardingCompletedKey = 'onboarding_completed';
 
@@ -34,9 +36,28 @@ class AppState extends ChangeNotifier {
   bool loaded = false;
   bool onboardingCompleted = false;
   String? loadError;
+  DateTime? _lastDetectedPaymentAt;
+  DateTime? _lastAlertsViewedAt;
 
   List<Movement> get movements => List.unmodifiable(_movements);
   List<double> get frequentRates => List.unmodifiable(_frequentRates);
+
+  bool get hasUnreadAlerts {
+    final detected = _lastDetectedPaymentAt;
+    if (detected == null) return false;
+    final viewed = _lastAlertsViewedAt;
+    return viewed == null || detected.isAfter(viewed);
+  }
+
+  List<Movement> get recentDigitalPayments => _movements
+      .where(
+        (movement) =>
+            movement.type == MovementType.income &&
+            (movement.paymentMethod == 'Yape' ||
+                movement.paymentMethod == 'Plin'),
+      )
+      .take(8)
+      .toList(growable: false);
 
   void _sortMovementsDescending() {
     _movements.sort((a, b) => b.date.compareTo(a.date));
@@ -81,6 +102,15 @@ class AppState extends ChangeNotifier {
       }
       closeHour = prefs.getInt(_closeHourKey) ?? 21;
       closeMinute = prefs.getInt(_closeMinuteKey) ?? 0;
+
+      final lastDetectedPaymentMs = prefs.getInt(_lastDetectedPaymentAtKey);
+      _lastDetectedPaymentAt = lastDetectedPaymentMs == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(lastDetectedPaymentMs);
+      final lastAlertsViewedMs = prefs.getInt(_lastAlertsViewedAtKey);
+      _lastAlertsViewedAt = lastAlertsViewedMs == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(lastAlertsViewedMs);
 
       debugPrint('AppState.load(): intentando abrir SQLite...');
 
@@ -180,14 +210,19 @@ class AppState extends ChangeNotifier {
   }
 
 
-  Future<bool> addDetectedYapeIncome({
+  Future<bool> addDetectedPaymentIncome({
     required double amount,
     required String eventId,
     required DateTime detectedAt,
+    required String paymentMethod,
   }) async {
+    if (paymentMethod != 'Yape' && paymentMethod != 'Plin') {
+      throw ArgumentError('Método de pago detectado no compatible.');
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final processed =
-        prefs.getStringList(_processedYapeEventIdsKey) ?? <String>[];
+        prefs.getStringList(_processedPaymentEventIdsKey) ?? <String>[];
 
     if (processed.contains(eventId)) {
       return false;
@@ -198,7 +233,7 @@ class AppState extends ChangeNotifier {
       type: MovementType.income,
       amount: amount,
       category: 'Servicio',
-      paymentMethod: 'Yape',
+      paymentMethod: paymentMethod,
       date: detectedAt,
     );
 
@@ -210,7 +245,14 @@ class AppState extends ChangeNotifier {
     if (processed.length > 100) {
       processed.removeRange(0, processed.length - 100);
     }
-    await prefs.setStringList(_processedYapeEventIdsKey, processed);
+    _lastDetectedPaymentAt = DateTime.now();
+    await Future.wait([
+      prefs.setStringList(_processedPaymentEventIdsKey, processed),
+      prefs.setInt(
+        _lastDetectedPaymentAtKey,
+        _lastDetectedPaymentAt!.millisecondsSinceEpoch,
+      ),
+    ]);
 
     try {
       await _afterNewMovement(movement);
@@ -220,6 +262,29 @@ class AppState extends ChangeNotifier {
 
     notifyListeners();
     return true;
+  }
+
+  Future<bool> addDetectedYapeIncome({
+    required double amount,
+    required String eventId,
+    required DateTime detectedAt,
+  }) {
+    return addDetectedPaymentIncome(
+      amount: amount,
+      eventId: eventId,
+      detectedAt: detectedAt,
+      paymentMethod: 'Yape',
+    );
+  }
+
+  Future<void> markAlertsViewed() async {
+    _lastAlertsViewedAt = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      _lastAlertsViewedAtKey,
+      _lastAlertsViewedAt!.millisecondsSinceEpoch,
+    );
+    notifyListeners();
   }
 
   Future<void> addExpense(

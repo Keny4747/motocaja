@@ -50,6 +50,22 @@
         <meta-data android:name="flutterEmbedding" android:value="2" />
     </application>
     <queries>
+        <!-- Visibilidad de apps de pago para mostrar su nombre en diagnostico. -->
+        <package android:name="com.bcp.innovacxion.yapeapp" />
+        <package android:name="com.bbva.nxt_peru" />
+        <package android:name="pe.com.interbank.mobilebanking" />
+        <package android:name="pe.com.interbank.mpay.customer" />
+        <package android:name="pe.com.scotiabank.blpm.android.client" />
+        <package android:name="pe.com.banbif.pnappmobile" />
+        <package android:name="com.cmac.cajamovilaqp" />
+        <package android:name="com.cajaarq.p51" />
+        <package android:name="com.cmacica.prd" />
+        <package android:name="com.cajahuancayo.cajahuancayo.appcajahuancayo" />
+        <package android:name="pe.confianza.cliente" />
+        <package android:name="com.alfinbanco.appclientes" />
+        <package android:name="pe.com.tarjetasperuanasprepago.tppapp" />
+        <package android:name="com.mibanco.bancamovil" />
+        <package android:name="pe.pichincha.bm" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

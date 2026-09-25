@@ -14,7 +14,7 @@ Aplicación Flutter Android para motociclistas independientes. Permite registrar
 - Promedio de ganancia por día trabajado.
 - Reporte diario en PDF.
 - Recordatorios de inactividad y cierre diario.
-- Detección opcional de pagos recibidos por Yape mediante notificaciones Android.
+- Detección opcional de pagos recibidos por Yape y Plin mediante notificaciones Android.
 - Persistencia de movimientos con SQLite.
 - Preferencias pequeñas con SharedPreferences.
 - Backup/restauración local versionada en JSON.

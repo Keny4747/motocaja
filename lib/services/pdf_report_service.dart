@@ -10,27 +10,27 @@ import '../models/report_summary.dart';
 class PdfReportService {
   const PdfReportService._();
 
-  static Future<void> shareDailyReport(ReportSummary summary) async {
-    if (summary.period != ReportPeriod.day) {
-      throw ArgumentError('El PDF del MVP solo admite reportes diarios.');
-    }
-
-    final bytes = await _buildDailyReport(summary);
-    final date = summary.selectedDate;
-    final fileName =
-        'motocaja_${date.year}-${_two(date.month)}-${_two(date.day)}.pdf';
+  static Future<void> shareReport(ReportSummary summary) async {
+    final bytes = await _buildReport(summary);
 
     await Printing.sharePdf(
       bytes: bytes,
-      filename: fileName,
+      filename: _fileName(summary),
     );
   }
 
-  static Future<Uint8List> _buildDailyReport(ReportSummary summary) async {
+  // Se conserva para no romper llamadas antiguas mientras la app migra al
+  // exportador generico.
+  static Future<void> shareDailyReport(ReportSummary summary) async {
+    await shareReport(summary);
+  }
+
+  static Future<Uint8List> _buildReport(ReportSummary summary) async {
+    final periodTitle = _periodTitle(summary.period);
     final document = pw.Document(
-      title: 'MotoCaja - Reporte diario',
+      title: 'MotoCaja - $periodTitle',
       author: 'MotoCaja',
-      subject: 'Reporte diario de ingresos y gastos',
+      subject: '$periodTitle de ingresos y gastos',
     );
 
     final movements = summary.movements.toList()
@@ -53,7 +53,7 @@ class PdfReportService {
                 ),
               ),
               pw.Text(
-                'Reporte diario',
+                periodTitle,
                 style: const pw.TextStyle(fontSize: 11),
               ),
             ],
@@ -71,7 +71,7 @@ class PdfReportService {
         ),
         build: (context) => [
           pw.Text(
-            _longDate(summary.selectedDate),
+            _periodLabel(summary),
             style: pw.TextStyle(
               fontSize: 14,
               fontWeight: pw.FontWeight.bold,
@@ -90,14 +90,17 @@ class PdfReportService {
           pw.SizedBox(height: 8),
           if (movements.isEmpty)
             pw.Text(
-              'No hay movimientos registrados para este dia.',
+              'No hay movimientos registrados para este periodo.',
               style: const pw.TextStyle(
                 fontSize: 10,
                 color: PdfColors.grey700,
               ),
             )
           else
-            _movementsTable(movements),
+            _movementsTable(
+              movements,
+              includeDate: summary.period != ReportPeriod.day,
+            ),
           pw.SizedBox(height: 22),
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -144,6 +147,12 @@ class PdfReportService {
           ),
           pw.SizedBox(height: 6),
           _summaryRow('Servicios', '${summary.services}'),
+          if (summary.period != ReportPeriod.day) ...[
+            pw.SizedBox(height: 6),
+            _summaryRow('Dias trabajados', '${summary.activeDays}'),
+            pw.SizedBox(height: 6),
+            _summaryRow('Promedio por dia', _money(summary.dailyAverage)),
+          ],
         ],
       ),
     );
@@ -168,25 +177,34 @@ class PdfReportService {
     );
   }
 
-  static pw.Widget _movementsTable(List<Movement> movements) {
+  static pw.Widget _movementsTable(
+    List<Movement> movements, {
+    required bool includeDate,
+  }) {
+    final headers = <String>[
+      if (includeDate) 'Fecha',
+      'Hora',
+      'Tipo',
+      'Categoria',
+      'Pago',
+      'Monto',
+    ];
+
+    final data = movements.map((movement) {
+      final income = movement.type == MovementType.income;
+      return <String>[
+        if (includeDate) _shortDate(movement.date),
+        _hour(movement.date),
+        income ? 'Ingreso' : 'Gasto',
+        movement.category,
+        movement.paymentMethod,
+        '${income ? '+' : '-'} ${_money(movement.amount)}',
+      ];
+    }).toList();
+
     return pw.TableHelper.fromTextArray(
-      headers: const [
-        'Hora',
-        'Tipo',
-        'Categoria',
-        'Pago',
-        'Monto',
-      ],
-      data: movements.map((movement) {
-        final income = movement.type == MovementType.income;
-        return [
-          _hour(movement.date),
-          income ? 'Ingreso' : 'Gasto',
-          movement.category,
-          movement.paymentMethod,
-          '${income ? '+' : '-'} ${_money(movement.amount)}',
-        ];
-      }).toList(),
+      headers: headers,
+      data: data,
       headerStyle: pw.TextStyle(
         fontSize: 9,
         fontWeight: pw.FontWeight.bold,
@@ -199,13 +217,22 @@ class PdfReportService {
         horizontal: 5,
         vertical: 6,
       ),
-      columnWidths: const {
-        0: pw.FlexColumnWidth(1.0),
-        1: pw.FlexColumnWidth(1.0),
-        2: pw.FlexColumnWidth(1.5),
-        3: pw.FlexColumnWidth(1.2),
-        4: pw.FlexColumnWidth(1.2),
-      },
+      columnWidths: includeDate
+          ? const {
+              0: pw.FlexColumnWidth(1.0),
+              1: pw.FlexColumnWidth(0.9),
+              2: pw.FlexColumnWidth(1.0),
+              3: pw.FlexColumnWidth(1.4),
+              4: pw.FlexColumnWidth(1.1),
+              5: pw.FlexColumnWidth(1.2),
+            }
+          : const {
+              0: pw.FlexColumnWidth(1.0),
+              1: pw.FlexColumnWidth(1.0),
+              2: pw.FlexColumnWidth(1.5),
+              3: pw.FlexColumnWidth(1.2),
+              4: pw.FlexColumnWidth(1.2),
+            },
     );
   }
 
@@ -263,6 +290,48 @@ class PdfReportService {
     );
   }
 
+  static String _periodTitle(ReportPeriod period) {
+    switch (period) {
+      case ReportPeriod.day:
+        return 'Reporte diario';
+      case ReportPeriod.sevenDays:
+        return 'Reporte de 7 dias';
+      case ReportPeriod.month:
+        return 'Reporte mensual';
+    }
+  }
+
+  static String _periodLabel(ReportSummary summary) {
+    switch (summary.period) {
+      case ReportPeriod.day:
+        return _longDate(summary.selectedDate);
+      case ReportPeriod.sevenDays:
+        final lastIncluded = summary.range.end.subtract(
+          const Duration(days: 1),
+        );
+        return '${_longDate(summary.range.start)} al ${_longDate(lastIncluded)}';
+      case ReportPeriod.month:
+        return '${_monthName(summary.selectedDate.month)} '
+            '${summary.selectedDate.year}';
+    }
+  }
+
+  static String _fileName(ReportSummary summary) {
+    final date = summary.selectedDate;
+
+    switch (summary.period) {
+      case ReportPeriod.day:
+        return 'motocaja_${date.year}-${_two(date.month)}-${_two(date.day)}.pdf';
+      case ReportPeriod.sevenDays:
+        final lastIncluded = summary.range.end.subtract(
+          const Duration(days: 1),
+        );
+        return 'motocaja_semana_'
+            '${_fileDate(summary.range.start)}_a_${_fileDate(lastIncluded)}.pdf';
+      case ReportPeriod.month:
+        return 'motocaja_mes_${date.year}-${_two(date.month)}.pdf';
+    }
+  }
 
   static String _money(double value) => 'S/ ${value.toStringAsFixed(2)}';
 
@@ -273,23 +342,35 @@ class PdfReportService {
     return '$hour12:$minute $suffix';
   }
 
+  static String _shortDate(DateTime date) {
+    return '${_two(date.day)}/${_two(date.month)}/${date.year}';
+  }
+
+  static String _fileDate(DateTime date) {
+    return '${date.year}-${_two(date.month)}-${_two(date.day)}';
+  }
+
   static String _longDate(DateTime date) {
+    return '${date.day} de ${_monthName(date.month).toLowerCase()} de ${date.year}';
+  }
+
+  static String _monthName(int month) {
     const months = [
-      'enero',
-      'febrero',
-      'marzo',
-      'abril',
-      'mayo',
-      'junio',
-      'julio',
-      'agosto',
-      'septiembre',
-      'octubre',
-      'noviembre',
-      'diciembre',
+      'Enero',
+      'Febrero',
+      'Marzo',
+      'Abril',
+      'Mayo',
+      'Junio',
+      'Julio',
+      'Agosto',
+      'Septiembre',
+      'Octubre',
+      'Noviembre',
+      'Diciembre',
     ];
 
-    return '${date.day} de ${months[date.month - 1]} de ${date.year}';
+    return months[month - 1];
   }
 
   static String _two(int value) => value.toString().padLeft(2, '0');

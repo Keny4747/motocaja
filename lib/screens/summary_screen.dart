@@ -188,41 +188,39 @@ class _SummaryScreenState extends State<SummaryScreen> {
               ),
             ],
           ),
-          if (_period == ReportPeriod.day) ...[
-            const SizedBox(height: 22),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: FilledButton.icon(
-                onPressed: _exportingPdf
-                    ? null
-                    : () => _exportPdf(summary),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.navy,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                icon: _exportingPdf
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.picture_as_pdf_outlined),
-                label: Text(
-                  _exportingPdf
-                      ? 'Generando PDF...'
-                      : 'Exportar PDF del día',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+          const SizedBox(height: 22),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: FilledButton.icon(
+              onPressed: _exportingPdf
+                  ? null
+                  : () => _exportPdf(summary),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.navy,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
+              icon: _exportingPdf
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.picture_as_pdf_outlined),
+              label: Text(
+                _exportingPdf
+                    ? 'Generando PDF...'
+                    : _exportPdfLabel(),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -241,7 +239,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
     });
 
     try {
-      await PdfReportService.shareDailyReport(summary);
+      await PdfReportService.shareReport(summary);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -255,6 +253,17 @@ class _SummaryScreenState extends State<SummaryScreen> {
           _exportingPdf = false;
         });
       }
+    }
+  }
+
+  String _exportPdfLabel() {
+    switch (_period) {
+      case ReportPeriod.day:
+        return 'Exportar PDF del día';
+      case ReportPeriod.sevenDays:
+        return 'Exportar PDF de la semana';
+      case ReportPeriod.month:
+        return 'Exportar PDF del mes';
     }
   }
 

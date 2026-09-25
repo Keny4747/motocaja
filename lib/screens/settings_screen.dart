@@ -189,7 +189,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           const _Header('Pagos inteligentes'),
           _SwitchTile(
             icon: Icons.account_balance_wallet_outlined,
-            title: 'Detectar pagos recibidos por Yape',
+            title: 'Detectar pagos de Yape y Plin',
             value: _yapeDetectionEnabled,
             onChanged: (value) => _changeYapeDetection(context, value),
           ),
@@ -207,10 +207,28 @@ class _SettingsScreenState extends State<SettingsScreen>
           const SizedBox(height: 8),
           const _InfoCard(
             text:
-                'MotoCaja solo observa notificaciones de Yape cuando activas '
-                'esta función. El contenido se procesa en el teléfono; no se '
-                'envía a ningún servidor. Antes de guardar un ingreso siempre '
-                'te pediremos confirmación.',
+                'MotoCaja observa Yape y notificaciones de entidades compatibles '
+                'con Plin cuando activas esta función. El contenido se procesa en '
+                'el teléfono; no se envía a ningún servidor. Antes de guardar un '
+                'ingreso siempre te pediremos confirmación.',
+          ),
+          const SizedBox(height: 8),
+          _SettingTile(
+            icon: Icons.troubleshoot_outlined,
+            title: 'Diagnóstico de pagos',
+            subtitle:
+                _lastYapeDiagnostic == null || _lastYapeDiagnostic!.isEmpty
+                ? 'Aún no hay una notificación compatible para revisar'
+                : 'Toca para ver las últimas notificaciones candidatas',
+            onTap: _showLastYapeDiagnostic,
+          ),
+          const SizedBox(height: 8),
+          _SettingTile(
+            icon: Icons.radar_outlined,
+            title: 'Capturar Plin por 2 minutos',
+            subtitle:
+                'Modo de diagnóstico: registra temporalmente las notificaciones que aparezcan',
+            onTap: _startRawPaymentCapture,
           ),
           const SizedBox(height: 16),
           const _Header('Datos y respaldo'),
@@ -239,24 +257,6 @@ class _SettingsScreenState extends State<SettingsScreen>
           if (kDebugMode) ...[
             const SizedBox(height: 16),
             const _Header('Tutorial'),
-            /*_SettingTile(
-              icon: Icons.bug_report_outlined,
-              title: 'Última notificación Yape detectada',
-              subtitle:
-                  _lastYapeDiagnostic == null || _lastYapeDiagnostic!.isEmpty
-                  ? 'Aún no hay una notificación para analizar'
-                  : 'Toca para revisar el formato recibido',
-              onTap: _showLastYapeDiagnostic,
-            ),
-            
-            const SizedBox(height: 8),
-            _SettingTile(
-              icon: Icons.health_and_safety_outlined,
-              title: 'Estado técnico',
-              subtitle: 'SQLite, backup, permisos y cantidad de movimientos',
-              onTap: () => _showDeveloperStatus(context, state),
-            )
-            */
             const SizedBox(height: 8),
             _SettingTile(
               icon: Icons.replay_rounded,
@@ -398,7 +398,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           'SQLite schema: ${AppDatabase.schemaVersion}\n'
           'Backup schema: ${BackupData.currentVersion}\n'
           'Notificaciones: ${notifications ? 'OK' : 'Sin permiso'}\n'
-          'Acceso Yape: ${yapeAccess ? 'OK' : 'Sin permiso'}\n'
+          'Acceso pagos: ${yapeAccess ? 'OK' : 'Sin permiso'}\n'
           'Onboarding: ${state.onboardingCompleted ? 'Completo' : 'Pendiente'}',
         ),
         actions: [
@@ -516,12 +516,13 @@ class _SettingsScreenState extends State<SettingsScreen>
       final accepted = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Detectar pagos de Yape'),
+          title: const Text('Detectar pagos de Yape y Plin'),
           content: const Text(
             'Para sugerirte el registro de pagos, Android debe permitir que '
-            'MotoCaja observe las notificaciones de Yape. El análisis se hace '
-            'localmente en este teléfono y el ingreso no se guarda hasta que '
-            'tú pulses Registrar.',
+            'MotoCaja observe las notificaciones de Yape y las notificaciones '
+            'de Plin de bancos compatibles. El análisis se hace localmente en '
+            'este teléfono y el ingreso no se guarda hasta que tú pulses '
+            'Registrar.',
           ),
           actions: [
             TextButton(
@@ -582,35 +583,165 @@ class _SettingsScreenState extends State<SettingsScreen>
     await YapeNotificationService.instance.openNotificationAccessSettings();
   }
 
+  Future<void> _startRawPaymentCapture() async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Captura temporal de Plin'),
+        content: const Text(
+          'Durante 2 minutos MotoCaja guardará localmente el título y texto de '
+          'las notificaciones que aparezcan, sin importar qué app las envíe. '
+          'Esto sirve para descubrir el origen real del aviso de Plin.\n\n'
+          'La captura se detiene sola y no envía datos a ningún servidor. Para '
+          'cuidar tu privacidad, haz la prueba cuando no esperes mensajes privados.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Iniciar 2 min'),
+          ),
+        ],
+      ),
+    );
+
+    if (accepted != true || !mounted) return;
+
+    try {
+      await YapeNotificationService.instance.startRawDiagnosticCapture();
+      if (!mounted) return;
+      setState(() => _lastYapeDiagnostic = null);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Captura activa por 2 minutos. Ahora recibe un Plin y luego abre Diagnóstico de pagos.',
+            ),
+            duration: Duration(seconds: 8),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo iniciar la captura: $error')),
+      );
+    }
+  }
+
   Future<void> _showLastYapeDiagnostic() async {
     await _refreshYapeStatus();
     if (!mounted) return;
 
-    final diagnostic = _lastYapeDiagnostic;
-    if (diagnostic == null || diagnostic.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Aún no hemos detectado una notificación de Yape. '
-            'Activa la detección y realiza un Yape de prueba.',
+    List<PaymentDiagnosticEvent> history = const [];
+    try {
+      history = await YapeNotificationService.instance.getDiagnosticHistory();
+    } catch (_) {
+      // Compatibilidad con una instalación nativa anterior.
+    }
+
+    if (!mounted) return;
+
+    if (history.isEmpty) {
+      final diagnostic = _lastYapeDiagnostic;
+      if (diagnostic == null || diagnostic.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Aún no hemos detectado una notificación de Yape o de una entidad Plin. '
+              'Realiza una prueba y vuelve a abrir este diagnóstico.',
+            ),
           ),
+        );
+        return;
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Diagnóstico de pagos'),
+          content: SingleChildScrollView(
+            child: SelectableText(
+              'Fuente: ${diagnostic.sourceName}\n'
+              'Paquete: ${diagnostic.packageName}\n\n'
+              'Título:\n${diagnostic.title}\n\n'
+              'Texto:\n${diagnostic.text}\n\n'
+              'Detalles:\n${diagnostic.bigText}',
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cerrar'),
+            ),
+          ],
         ),
       );
       return;
     }
 
+    String timeLabel(DateTime? value) {
+      if (value == null) return '-';
+      String two(int n) => n.toString().padLeft(2, '0');
+      return '${two(value.day)}/${two(value.month)}/${value.year} '
+          '${two(value.hour)}:${two(value.minute)}:${two(value.second)}';
+    }
+
+    final buffer = StringBuffer();
+    for (var index = 0; index < history.length; index++) {
+      final event = history[index];
+      if (index > 0) {
+        buffer.writeln('\n${List.filled(34, '─').join()}\n');
+      }
+      buffer.writeln('#${index + 1} · ${timeLabel(event.capturedAt)}');
+      buffer.writeln('Decisión: ${event.decision}');
+      buffer.writeln('Fuente: ${event.sourceName}');
+      if (event.appLabel.isNotEmpty) {
+        buffer.writeln('App: ${event.appLabel}');
+      }
+      buffer.writeln('Paquete: ${event.packageName}');
+      if (event.channelId.isNotEmpty) {
+        buffer.writeln('Canal: ${event.channelId}');
+      }
+      if (event.tag.isNotEmpty) buffer.writeln('Tag: ${event.tag}');
+      if (event.amount != null) {
+        buffer.writeln('Monto interpretado: S/ ${event.amount!.toStringAsFixed(2)}');
+      }
+      buffer.writeln('Título: ${event.title.isEmpty ? '(vacío)' : event.title}');
+      buffer.writeln('Texto: ${event.text.isEmpty ? '(vacío)' : event.text}');
+      if (event.details.isNotEmpty) {
+        buffer.writeln('Detalles:\n${event.details}');
+      }
+      if (event.postedAt != null && event.postedAt != event.capturedAt) {
+        buffer.writeln('Android postTime: ${timeLabel(event.postedAt)}');
+      }
+      if (event.notificationWhen != null) {
+        buffer.writeln('Notification when: ${timeLabel(event.notificationWhen)}');
+      }
+    }
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Diagnóstico de Yape'),
-        content: SingleChildScrollView(
-          child: SelectableText(
-            'Título:\n${diagnostic.title}\n\n'
-            'Texto:\n${diagnostic.text}\n\n'
-            'Texto ampliado:\n${diagnostic.bigText}',
+        title: const Text('Historial de diagnóstico'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(buffer.toString()),
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () async {
+              await YapeNotificationService.instance.clearDiagnosticHistory();
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              await _refreshYapeStatus();
+            },
+            child: const Text('Limpiar'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cerrar'),

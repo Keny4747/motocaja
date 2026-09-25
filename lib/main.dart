@@ -21,7 +21,7 @@ Future<void> main() async {
   try {
     await YapeNotificationService.instance.initialize();
   } catch (error) {
-    debugPrint('YapeNotificationService.initialize(): $error');
+    debugPrint('PaymentNotificationService.initialize(): $error');
   }
 
   runApp(const MotoCajaApp());
