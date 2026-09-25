@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'screens/main_shell.dart';
+import 'screens/onboarding_screen.dart';
 import 'screens/startup_screen.dart';
 import 'services/app_state.dart';
 import 'services/notification_service.dart';
@@ -20,7 +21,7 @@ Future<void> main() async {
   try {
     await YapeNotificationService.instance.initialize();
   } catch (error) {
-    debugPrint('YapeNotificationService.initialize(): $error');
+    debugPrint('PaymentNotificationService.initialize(): $error');
   }
 
   runApp(const MotoCajaApp());
@@ -74,6 +75,8 @@ class _BootstrapState extends State<_Bootstrap> {
         key: const ValueKey('startup-error'),
         message: appState.loadError!,
       );
+    } else if (!appState.onboardingCompleted) {
+      child = const OnboardingScreen(key: ValueKey('onboarding'));
     } else {
       child = const MainShell(key: ValueKey('main-shell'));
     }

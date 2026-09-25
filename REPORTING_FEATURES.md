@@ -18,19 +18,21 @@ Un dia trabajado es un dia que contiene al menos un ingreso/servicio. Si no hay 
 
 ## PDF
 
-El MVP permite exportar el reporte del dia seleccionado. El PDF incluye:
+Dia, Semana y Mes permiten exportar PDF. El documento adapta titulo, rango y nombre del archivo al periodo seleccionado e incluye:
 
 - ingresos
 - gastos
 - ganancia
 - cantidad de servicios
-- movimientos del dia
+- dias trabajados y promedio diario en Semana/Mes
+- movimientos del periodo
+- fecha de cada movimiento cuando el reporte abarca varios dias
 - ingresos por medio de pago
 - gastos por categoria
 
 Se comparte con el selector nativo de Android usando `Printing.sharePdf`.
 
-## Dependencias agregadas
+## Dependencias
 
 - `pdf: ^3.13.0`
 - `printing: ^5.15.0`

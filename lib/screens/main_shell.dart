@@ -22,7 +22,7 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int index = 0;
-  bool _processingYapePayment = false;
+  bool _processingDetectedPayment = false;
 
   @override
   void initState() {
@@ -35,12 +35,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
     YapeNotificationService.instance.initialize();
     YapeNotificationService.instance.pendingPaymentSignal.addListener(
-      _onPendingYapePaymentSignal,
+      _onPendingPaymentSignal,
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _consumeNavigationPayload();
-      await _consumePendingYapePayment();
+      await _consumePendingPayment();
     });
   }
 
@@ -51,7 +51,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       _onNotificationPayloadChanged,
     );
     YapeNotificationService.instance.pendingPaymentSignal.removeListener(
-      _onPendingYapePaymentSignal,
+      _onPendingPaymentSignal,
     );
     super.dispose();
   }
@@ -59,7 +59,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _consumePendingYapePayment();
+      _consumePendingPayment();
     }
   }
 
@@ -86,42 +86,43 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     }
   }
 
-  void _onPendingYapePaymentSignal() {
-    _consumePendingYapePayment();
+  void _onPendingPaymentSignal() {
+    _consumePendingPayment();
   }
 
-  Future<void> _consumePendingYapePayment() async {
-    if (_processingYapePayment || !mounted) return;
-    _processingYapePayment = true;
+  Future<void> _consumePendingPayment() async {
+    if (_processingDetectedPayment || !mounted) return;
+    _processingDetectedPayment = true;
 
     try {
       final payment =
           await YapeNotificationService.instance.consumePendingPayment();
       if (payment == null || !mounted) return;
 
-      final registered = await context.read<AppState>().addDetectedYapeIncome(
+      final registered = await context.read<AppState>().addDetectedPaymentIncome(
             amount: payment.amount,
             eventId: payment.eventId,
             detectedAt: payment.detectedAt,
+            paymentMethod: payment.paymentMethod,
           );
 
       if (!registered || !mounted) return;
 
       await showActionSuccessDialog(
         context,
-        title: 'Yape registrado',
-        message: '${money(payment.amount)} · Yape',
+        title: '${payment.paymentMethod} registrado',
+        message: '${money(payment.amount)} · ${payment.paymentMethod}',
         icon: Icons.account_balance_wallet_rounded,
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('No se pudo registrar el Yape detectado: $error'),
+          content: Text('No se pudo registrar el pago detectado: $error'),
         ),
       );
     } finally {
-      _processingYapePayment = false;
+      _processingDetectedPayment = false;
     }
   }
 

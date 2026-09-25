@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../database/app_database.dart';
 import '../models/movement.dart';
+import 'backup_service.dart';
 import 'notification_service.dart';
 
 class AppState extends ChangeNotifier {
@@ -16,21 +17,47 @@ class AppState extends ChangeNotifier {
   static const _reminderIntervalKey = 'reminder_interval_minutes';
   static const _closeHourKey = 'close_hour';
   static const _closeMinuteKey = 'close_minute';
-  static const _processedYapeEventIdsKey = 'processed_yape_event_ids';
+  static const _processedPaymentEventIdsKey = 'processed_yape_event_ids';
+  static const _lastDetectedPaymentAtKey = 'last_detected_payment_at';
+  static const _lastAlertsViewedAtKey = 'last_alerts_viewed_at';
+  static const _frequentRatesKey = 'frequent_rates';
+  static const _onboardingCompletedKey = 'onboarding_completed';
 
   final List<Movement> _movements = [];
-  String name = 'Carlos Ramírez';
-  String vehicle = 'Honda Wave';
+  String name = 'Motociclista';
+  String vehicle = 'Mi moto';
   String defaultPayment = 'Efectivo';
+  final List<double> _frequentRates = [5, 7, 8, 10];
   bool remindIncome = false;
   bool remindClose = false;
   int reminderIntervalMinutes = 90;
   int closeHour = 21;
   int closeMinute = 0;
   bool loaded = false;
+  bool onboardingCompleted = false;
   String? loadError;
+  DateTime? _lastDetectedPaymentAt;
+  DateTime? _lastAlertsViewedAt;
 
   List<Movement> get movements => List.unmodifiable(_movements);
+  List<double> get frequentRates => List.unmodifiable(_frequentRates);
+
+  bool get hasUnreadAlerts {
+    final detected = _lastDetectedPaymentAt;
+    if (detected == null) return false;
+    final viewed = _lastAlertsViewedAt;
+    return viewed == null || detected.isAfter(viewed);
+  }
+
+  List<Movement> get recentDigitalPayments => _movements
+      .where(
+        (movement) =>
+            movement.type == MovementType.income &&
+            (movement.paymentMethod == 'Yape' ||
+                movement.paymentMethod == 'Plin'),
+      )
+      .take(8)
+      .toList(growable: false);
 
   void _sortMovementsDescending() {
     _movements.sort((a, b) => b.date.compareTo(a.date));
@@ -44,9 +71,27 @@ class AppState extends ChangeNotifier {
 
       debugPrint('AppState.load(): SharedPreferences OK');
 
+      final savedOnboarding = prefs.getBool(_onboardingCompletedKey);
+      onboardingCompleted = savedOnboarding ?? false;
+
       name = prefs.getString(_nameKey) ?? name;
       vehicle = prefs.getString(_vehicleKey) ?? vehicle;
       defaultPayment = prefs.getString(_defaultPaymentKey) ?? defaultPayment;
+      final savedRates = prefs.getStringList(_frequentRatesKey);
+      if (savedRates != null) {
+        final parsedRates = savedRates
+            .map((value) => double.tryParse(value))
+            .whereType<double>()
+            .where((value) => value > 0)
+            .toSet()
+            .toList()
+          ..sort();
+        if (parsedRates.isNotEmpty) {
+          _frequentRates
+            ..clear()
+            ..addAll(parsedRates.take(6));
+        }
+      }
       remindIncome = prefs.getBool(_remindIncomeKey) ?? false;
       remindClose = prefs.getBool(_remindCloseKey) ?? false;
       reminderIntervalMinutes = prefs.getInt(_reminderIntervalKey) ?? 90;
@@ -57,6 +102,15 @@ class AppState extends ChangeNotifier {
       }
       closeHour = prefs.getInt(_closeHourKey) ?? 21;
       closeMinute = prefs.getInt(_closeMinuteKey) ?? 0;
+
+      final lastDetectedPaymentMs = prefs.getInt(_lastDetectedPaymentAtKey);
+      _lastDetectedPaymentAt = lastDetectedPaymentMs == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(lastDetectedPaymentMs);
+      final lastAlertsViewedMs = prefs.getInt(_lastAlertsViewedAtKey);
+      _lastAlertsViewedAt = lastAlertsViewedMs == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(lastAlertsViewedMs);
 
       debugPrint('AppState.load(): intentando abrir SQLite...');
 
@@ -93,6 +147,25 @@ class AppState extends ChangeNotifier {
         await prefs.remove(_legacyMovementsKey);
 
         debugPrint('AppState.load(): migración completada');
+      }
+
+      if (savedOnboarding == null) {
+        final hasExistingInstallationData =
+            _movements.isNotEmpty ||
+            prefs.containsKey(_nameKey) ||
+            prefs.containsKey(_vehicleKey) ||
+            prefs.containsKey(_frequentRatesKey) ||
+            prefs.containsKey(_defaultPaymentKey) ||
+            prefs.containsKey(_remindIncomeKey) ||
+            prefs.containsKey(_remindCloseKey) ||
+            prefs.containsKey(_reminderIntervalKey) ||
+            prefs.containsKey(_closeHourKey) ||
+            prefs.containsKey(_closeMinuteKey);
+
+        if (hasExistingInstallationData) {
+          onboardingCompleted = true;
+          await prefs.setBool(_onboardingCompletedKey, true);
+        }
       }
 
       try {
@@ -137,14 +210,19 @@ class AppState extends ChangeNotifier {
   }
 
 
-  Future<bool> addDetectedYapeIncome({
+  Future<bool> addDetectedPaymentIncome({
     required double amount,
     required String eventId,
     required DateTime detectedAt,
+    required String paymentMethod,
   }) async {
+    if (paymentMethod != 'Yape' && paymentMethod != 'Plin') {
+      throw ArgumentError('Método de pago detectado no compatible.');
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final processed =
-        prefs.getStringList(_processedYapeEventIdsKey) ?? <String>[];
+        prefs.getStringList(_processedPaymentEventIdsKey) ?? <String>[];
 
     if (processed.contains(eventId)) {
       return false;
@@ -155,7 +233,7 @@ class AppState extends ChangeNotifier {
       type: MovementType.income,
       amount: amount,
       category: 'Servicio',
-      paymentMethod: 'Yape',
+      paymentMethod: paymentMethod,
       date: detectedAt,
     );
 
@@ -167,7 +245,14 @@ class AppState extends ChangeNotifier {
     if (processed.length > 100) {
       processed.removeRange(0, processed.length - 100);
     }
-    await prefs.setStringList(_processedYapeEventIdsKey, processed);
+    _lastDetectedPaymentAt = DateTime.now();
+    await Future.wait([
+      prefs.setStringList(_processedPaymentEventIdsKey, processed),
+      prefs.setInt(
+        _lastDetectedPaymentAtKey,
+        _lastDetectedPaymentAt!.millisecondsSinceEpoch,
+      ),
+    ]);
 
     try {
       await _afterNewMovement(movement);
@@ -177,6 +262,29 @@ class AppState extends ChangeNotifier {
 
     notifyListeners();
     return true;
+  }
+
+  Future<bool> addDetectedYapeIncome({
+    required double amount,
+    required String eventId,
+    required DateTime detectedAt,
+  }) {
+    return addDetectedPaymentIncome(
+      amount: amount,
+      eventId: eventId,
+      detectedAt: detectedAt,
+      paymentMethod: 'Yape',
+    );
+  }
+
+  Future<void> markAlertsViewed() async {
+    _lastAlertsViewedAt = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      _lastAlertsViewedAtKey,
+      _lastAlertsViewedAt!.millisecondsSinceEpoch,
+    );
+    notifyListeners();
   }
 
   Future<void> addExpense(
@@ -248,6 +356,157 @@ class AppState extends ChangeNotifier {
       defaultPayment = newDefaultPayment;
       await prefs.setString(_defaultPaymentKey, defaultPayment);
     }
+    notifyListeners();
+  }
+
+  Future<void> setFrequentRates(List<double> values) async {
+    final sanitized = values
+        .where((value) => value.isFinite && value > 0)
+        .toSet()
+        .toList()
+      ..sort();
+
+    if (sanitized.isEmpty || sanitized.length > 6) {
+      throw ArgumentError('Debes configurar entre 1 y 6 tarifas válidas.');
+    }
+
+    _frequentRates
+      ..clear()
+      ..addAll(sanitized);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _frequentRatesKey,
+      _frequentRates.map((value) => value.toString()).toList(),
+    );
+
+    notifyListeners();
+  }
+
+  BackupData createBackupData({required bool yapeDetectionEnabled}) {
+    return BackupData(
+      exportedAt: DateTime.now(),
+      movements: List<Movement>.from(_movements),
+      name: name,
+      vehicle: vehicle,
+      defaultPayment: defaultPayment,
+      frequentRates: List<double>.from(_frequentRates),
+      remindIncome: remindIncome,
+      remindClose: remindClose,
+      reminderIntervalMinutes: reminderIntervalMinutes,
+      closeHour: closeHour,
+      closeMinute: closeMinute,
+      yapeDetectionEnabled: yapeDetectionEnabled,
+    );
+  }
+
+  Future<void> restoreBackup(BackupData backup) async {
+    await AppDatabase.instance.replaceAllMovements(backup.movements);
+
+    _movements
+      ..clear()
+      ..addAll(backup.movements);
+    _sortMovementsDescending();
+
+    name = backup.name.isEmpty ? 'Motociclista' : backup.name;
+    vehicle = backup.vehicle.isEmpty ? 'Mi moto' : backup.vehicle;
+    defaultPayment = backup.defaultPayment;
+    _frequentRates
+      ..clear()
+      ..addAll(backup.frequentRates);
+    remindIncome = backup.remindIncome;
+    remindClose = backup.remindClose;
+    reminderIntervalMinutes = backup.reminderIntervalMinutes;
+    closeHour = backup.closeHour;
+    closeMinute = backup.closeMinute;
+    onboardingCompleted = true;
+
+    final prefs = await SharedPreferences.getInstance();
+    await Future.wait([
+      prefs.setString(_nameKey, name),
+      prefs.setString(_vehicleKey, vehicle),
+      prefs.setString(_defaultPaymentKey, defaultPayment),
+      prefs.setStringList(
+        _frequentRatesKey,
+        _frequentRates.map((value) => value.toString()).toList(),
+      ),
+      prefs.setBool(_remindIncomeKey, remindIncome),
+      prefs.setBool(_remindCloseKey, remindClose),
+      prefs.setInt(_reminderIntervalKey, reminderIntervalMinutes),
+      prefs.setInt(_closeHourKey, closeHour),
+      prefs.setInt(_closeMinuteKey, closeMinute),
+      prefs.setBool(_onboardingCompletedKey, true),
+    ]);
+
+    await NotificationService.instance.cancelAllMotoCajaReminders();
+    try {
+      await _refreshScheduledRemindersOnLoad();
+    } catch (error) {
+      debugPrint('Aviso: no se pudieron restaurar recordatorios: $error');
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> completeOnboarding({
+    required String profileName,
+    required String profileVehicle,
+    required List<double> rates,
+    required String paymentMethod,
+    required bool enableReminders,
+  }) async {
+    final sanitizedRates = rates
+        .where((value) => value.isFinite && value > 0)
+        .toSet()
+        .toList()
+      ..sort();
+
+    if (profileName.trim().isEmpty) {
+      throw ArgumentError('Ingresa tu nombre.');
+    }
+    if (profileVehicle.trim().isEmpty) {
+      throw ArgumentError('Ingresa los datos de tu moto.');
+    }
+    if (sanitizedRates.isEmpty || sanitizedRates.length > 6) {
+      throw ArgumentError('Configura entre 1 y 6 tarifas válidas.');
+    }
+
+    const allowedPayments = {'Efectivo', 'Yape', 'Plin', 'Transferencia'};
+    if (!allowedPayments.contains(paymentMethod)) {
+      throw ArgumentError('Método de pago no válido.');
+    }
+
+    name = profileName.trim();
+    vehicle = profileVehicle.trim();
+    defaultPayment = paymentMethod;
+    _frequentRates
+      ..clear()
+      ..addAll(sanitizedRates);
+    remindIncome = enableReminders;
+    remindClose = enableReminders;
+    onboardingCompleted = true;
+
+    final prefs = await SharedPreferences.getInstance();
+    await Future.wait([
+      prefs.setString(_nameKey, name),
+      prefs.setString(_vehicleKey, vehicle),
+      prefs.setString(_defaultPaymentKey, defaultPayment),
+      prefs.setStringList(
+        _frequentRatesKey,
+        _frequentRates.map((value) => value.toString()).toList(),
+      ),
+      prefs.setBool(_remindIncomeKey, remindIncome),
+      prefs.setBool(_remindCloseKey, remindClose),
+      prefs.setBool(_onboardingCompletedKey, true),
+    ]);
+
+    notifyListeners();
+  }
+
+  Future<void> resetOnboardingForDebug() async {
+    onboardingCompleted = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_onboardingCompletedKey, false);
     notifyListeners();
   }
 
@@ -383,8 +642,10 @@ class AppState extends ChangeNotifier {
   static bool sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  List<Movement> forToday() =>
-      _movements.where((m) => sameDay(m.date, DateTime.now())).toList();
+  List<Movement> forDate(DateTime date) =>
+      _movements.where((m) => sameDay(m.date, date)).toList();
+
+  List<Movement> forToday() => forDate(DateTime.now());
 
   List<Movement> from(DateTime start) =>
       _movements.where((m) => !m.date.isBefore(start)).toList();

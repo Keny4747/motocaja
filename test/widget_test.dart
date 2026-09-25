@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:motocaja/main.dart';
+import 'package:motocaja/widgets/common.dart';
 
 void main() {
-  testWidgets('MotoCaja boots', (tester) async {
-    await tester.pumpWidget(const MotoCajaApp());
-    expect(find.text('MotoCaja'), findsNothing);
-  }, skip: true);
+  test('money formats Peruvian soles with two decimals', () {
+    expect(money(7), 'S/ 7.00');
+    expect(money(7.5), 'S/ 7.50');
+  });
 }
