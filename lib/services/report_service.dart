@@ -21,10 +21,13 @@ class ReportService {
           end: day.add(const Duration(days: 1)),
         );
 
-      case ReportPeriod.sevenDays:
+      case ReportPeriod.week:
+        final weekStart = day.subtract(
+          Duration(days: day.weekday - DateTime.monday),
+        );
         return ReportRange(
-          start: day.subtract(const Duration(days: 6)),
-          end: day.add(const Duration(days: 1)),
+          start: weekStart,
+          end: weekStart.add(const Duration(days: 7)),
         );
 
       case ReportPeriod.month:

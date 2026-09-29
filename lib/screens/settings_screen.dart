@@ -205,14 +205,8 @@ class _SettingsScreenState extends State<SettingsScreen>
             onTap: _openYapeAccessSettings,
           ),
           const SizedBox(height: 8),
-          const _InfoCard(
-            text:
-                'MotoCaja observa Yape y notificaciones de entidades compatibles '
-                'con Plin cuando activas esta función. El contenido se procesa en '
-                'el teléfono; no se envía a ningún servidor. Antes de guardar un '
-                'ingreso siempre te pediremos confirmación.',
-          ),
-          const SizedBox(height: 8),
+
+          /*const SizedBox(height: 8),
           _SettingTile(
             icon: Icons.troubleshoot_outlined,
             title: 'Diagnóstico de pagos',
@@ -229,7 +223,8 @@ class _SettingsScreenState extends State<SettingsScreen>
             subtitle:
                 'Modo de diagnóstico: registra temporalmente las notificaciones que aparezcan',
             onTap: _startRawPaymentCapture,
-          ),
+          )
+          */
           const SizedBox(height: 16),
           const _Header('Datos y respaldo'),
           _SettingTile(
@@ -708,9 +703,13 @@ class _SettingsScreenState extends State<SettingsScreen>
       }
       if (event.tag.isNotEmpty) buffer.writeln('Tag: ${event.tag}');
       if (event.amount != null) {
-        buffer.writeln('Monto interpretado: S/ ${event.amount!.toStringAsFixed(2)}');
+        buffer.writeln(
+          'Monto interpretado: S/ ${event.amount!.toStringAsFixed(2)}',
+        );
       }
-      buffer.writeln('Título: ${event.title.isEmpty ? '(vacío)' : event.title}');
+      buffer.writeln(
+        'Título: ${event.title.isEmpty ? '(vacío)' : event.title}',
+      );
       buffer.writeln('Texto: ${event.text.isEmpty ? '(vacío)' : event.text}');
       if (event.details.isNotEmpty) {
         buffer.writeln('Detalles:\n${event.details}');
@@ -719,7 +718,9 @@ class _SettingsScreenState extends State<SettingsScreen>
         buffer.writeln('Android postTime: ${timeLabel(event.postedAt)}');
       }
       if (event.notificationWhen != null) {
-        buffer.writeln('Notification when: ${timeLabel(event.notificationWhen)}');
+        buffer.writeln(
+          'Notification when: ${timeLabel(event.notificationWhen)}',
+        );
       }
     }
 

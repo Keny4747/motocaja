@@ -2,7 +2,7 @@ import 'movement.dart';
 
 enum ReportPeriod {
   day,
-  sevenDays,
+  week,
   month,
 }
 

@@ -294,8 +294,8 @@ class PdfReportService {
     switch (period) {
       case ReportPeriod.day:
         return 'Reporte diario';
-      case ReportPeriod.sevenDays:
-        return 'Reporte de 7 dias';
+      case ReportPeriod.week:
+        return 'Reporte semanal';
       case ReportPeriod.month:
         return 'Reporte mensual';
     }
@@ -305,7 +305,7 @@ class PdfReportService {
     switch (summary.period) {
       case ReportPeriod.day:
         return _longDate(summary.selectedDate);
-      case ReportPeriod.sevenDays:
+      case ReportPeriod.week:
         final lastIncluded = summary.range.end.subtract(
           const Duration(days: 1),
         );
@@ -322,7 +322,7 @@ class PdfReportService {
     switch (summary.period) {
       case ReportPeriod.day:
         return 'motocaja_${date.year}-${_two(date.month)}-${_two(date.day)}.pdf';
-      case ReportPeriod.sevenDays:
+      case ReportPeriod.week:
         final lastIncluded = summary.range.end.subtract(
           const Duration(days: 1),
         );

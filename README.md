@@ -10,9 +10,9 @@ Aplicación Flutter Android para motociclistas independientes. Permite registrar
 - Métodos de pago: Efectivo, Yape, Plin y Transferencia.
 - Movimientos por fecha mediante calendario.
 - Detalle, edición y eliminación de movimientos.
-- Resumen por día, últimos 7 días y mes.
+- Resumen navegable por día, semana calendario (lunes a domingo) y mes, con selección de períodos históricos.
 - Promedio de ganancia por día trabajado.
-- Reporte diario en PDF.
+- Reportes PDF por cualquier día, semana o mes seleccionado.
 - Recordatorios de inactividad y cierre diario.
 - Detección opcional de pagos recibidos por Yape y Plin mediante notificaciones Android.
 - Persistencia de movimientos con SQLite.
