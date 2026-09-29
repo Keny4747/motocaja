@@ -22,6 +22,38 @@ Movement movement({
 }
 
 void main() {
+  group('ReportService.rangeFor week', () {
+    test('uses Monday through Sunday for a midweek date', () {
+      final range = ReportService.rangeFor(
+        ReportPeriod.week,
+        DateTime(2026, 9, 25),
+      );
+
+      expect(range.start, DateTime(2026, 9, 21));
+      expect(range.end, DateTime(2026, 9, 28));
+    });
+
+    test('keeps Monday as the start of its own week', () {
+      final range = ReportService.rangeFor(
+        ReportPeriod.week,
+        DateTime(2026, 9, 21),
+      );
+
+      expect(range.start, DateTime(2026, 9, 21));
+      expect(range.end, DateTime(2026, 9, 28));
+    });
+
+    test('crosses month and year boundaries correctly', () {
+      final range = ReportService.rangeFor(
+        ReportPeriod.week,
+        DateTime(2027, 1, 1),
+      );
+
+      expect(range.start, DateTime(2026, 12, 28));
+      expect(range.end, DateTime(2027, 1, 4));
+    });
+  });
+
   group('ReportService.rangeFor month', () {
     test('handles a 30-day month without hardcoded day counts', () {
       final range = ReportService.rangeFor(
@@ -77,8 +109,8 @@ void main() {
           date: DateTime(2026, 9, 12, 10),
         ),
       ],
-      period: ReportPeriod.sevenDays,
-      selectedDate: DateTime(2026, 9, 14),
+      period: ReportPeriod.week,
+      selectedDate: DateTime(2026, 9, 12),
     );
 
     expect(summary.activeDays, 2);

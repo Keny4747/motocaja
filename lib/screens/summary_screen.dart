@@ -57,8 +57,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
               Expanded(
                 child: _Tab(
                   text: 'Semana',
-                  selected: _period == ReportPeriod.sevenDays,
-                  onTap: () => _setPeriod(ReportPeriod.sevenDays),
+                  selected: _period == ReportPeriod.week,
+                  onTap: () => _setPeriod(ReportPeriod.week),
                 ),
               ),
               const SizedBox(width: 8),
@@ -72,13 +72,74 @@ class _SummaryScreenState extends State<SummaryScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            _periodLabel(summary),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: _previousTooltip(),
+                  onPressed: _canMovePrevious() ? () => _movePeriod(-1) : null,
+                  icon: const Icon(Icons.chevron_left_rounded),
+                ),
+                Expanded(
+                  child: InkWell(
+                    onTap: _selectPeriodDate,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 9,
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.calendar_month_outlined,
+                                size: 18,
+                                color: AppColors.greenDark,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  _periodLabel(summary),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: AppColors.navy,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _pickerHint(),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: _nextTooltip(),
+                  onPressed: _canMoveNext() ? () => _movePeriod(1) : null,
+                  icon: const Icon(Icons.chevron_right_rounded),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),
@@ -229,8 +290,268 @@ class _SummaryScreenState extends State<SummaryScreen> {
   void _setPeriod(ReportPeriod period) {
     setState(() {
       _period = period;
-      _selectedDate = _normalize(DateTime.now());
     });
+  }
+
+  void _movePeriod(int direction) {
+    setState(() {
+      switch (_period) {
+        case ReportPeriod.day:
+          _selectedDate = _normalize(
+            _selectedDate.add(Duration(days: direction)),
+          );
+          break;
+        case ReportPeriod.week:
+          _selectedDate = _normalize(
+            _selectedDate.add(Duration(days: 7 * direction)),
+          );
+          break;
+        case ReportPeriod.month:
+          _selectedDate = _shiftMonth(_selectedDate, direction);
+          break;
+      }
+    });
+  }
+
+  bool _canMovePrevious() {
+    final now = _normalize(DateTime.now());
+    final minimumStart = ReportService.rangeFor(
+      _period,
+      _minimumSelectableDate(now),
+    ).start;
+    final selectedStart = ReportService.rangeFor(
+      _period,
+      _selectedDate,
+    ).start;
+    return selectedStart.isAfter(minimumStart);
+  }
+
+  bool _canMoveNext() {
+    final currentStart = ReportService.rangeFor(
+      _period,
+      _normalize(DateTime.now()),
+    ).start;
+    final selectedStart = ReportService.rangeFor(
+      _period,
+      _selectedDate,
+    ).start;
+    return selectedStart.isBefore(currentStart);
+  }
+
+  Future<void> _selectPeriodDate() async {
+    final now = _normalize(DateTime.now());
+
+    if (_period == ReportPeriod.month) {
+      final pickedMonth = await _showMonthPicker(now);
+      if (pickedMonth == null || !mounted) return;
+      setState(() {
+        _selectedDate = _dateInMonth(
+          pickedMonth.year,
+          pickedMonth.month,
+          _selectedDate.day,
+        );
+      });
+      return;
+    }
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate.isAfter(now) ? now : _selectedDate,
+      firstDate: _minimumSelectableDate(now),
+      lastDate: now,
+      helpText: _period == ReportPeriod.day
+          ? 'Selecciona el día del reporte'
+          : 'Selecciona una fecha de la semana',
+      cancelText: 'Cancelar',
+      confirmText: _period == ReportPeriod.day
+          ? 'Elegir día'
+          : 'Elegir semana',
+    );
+
+    if (picked == null || !mounted) return;
+    setState(() {
+      _selectedDate = _normalize(picked);
+    });
+  }
+
+  Future<DateTime?> _showMonthPicker(DateTime now) {
+    final minimumYear = _minimumSelectableDate(now).year;
+    var visibleYear = _selectedDate.year.clamp(minimumYear, now.year).toInt();
+
+    return showDialog<DateTime>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              titlePadding: const EdgeInsets.fromLTRB(20, 18, 12, 4),
+              contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              title: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Selecciona el mes',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Cerrar',
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 330,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          tooltip: 'Año anterior',
+                          onPressed: visibleYear > minimumYear
+                              ? () => setDialogState(() => visibleYear--)
+                              : null,
+                          icon: const Icon(Icons.chevron_left_rounded),
+                        ),
+                        SizedBox(
+                          width: 90,
+                          child: Text(
+                            '$visibleYear',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.navy,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Año siguiente',
+                          onPressed: visibleYear < now.year
+                              ? () => setDialogState(() => visibleYear++)
+                              : null,
+                          icon: const Icon(Icons.chevron_right_rounded),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                        childAspectRatio: 1.8,
+                      ),
+                      itemCount: 12,
+                      itemBuilder: (context, index) {
+                        final month = index + 1;
+                        final isFuture = visibleYear == now.year &&
+                            month > now.month;
+                        final isSelected = visibleYear == _selectedDate.year &&
+                            month == _selectedDate.month;
+
+                        return InkWell(
+                          onTap: isFuture
+                              ? null
+                              : () => Navigator.pop(
+                                    dialogContext,
+                                    DateTime(visibleYear, month, 1),
+                                  ),
+                          borderRadius: BorderRadius.circular(9),
+                          child: Container(
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.green
+                                  : AppColors.surface,
+                              borderRadius: BorderRadius.circular(9),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.green
+                                    : AppColors.border,
+                              ),
+                            ),
+                            child: Text(
+                              _monthName(month).substring(0, 3),
+                              style: TextStyle(
+                                color: isFuture
+                                    ? AppColors.muted.withValues(alpha: 0.45)
+                                    : isSelected
+                                        ? Colors.white
+                                        : AppColors.navy,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  DateTime _minimumSelectableDate(DateTime now) {
+    return DateTime(now.year - 20, 1, 1);
+  }
+
+  DateTime _shiftMonth(DateTime date, int offset) {
+    final target = DateTime(date.year, date.month + offset, 1);
+    return _dateInMonth(target.year, target.month, date.day);
+  }
+
+  DateTime _dateInMonth(int year, int month, int preferredDay) {
+    final lastDay = DateTime(year, month + 1, 0).day;
+    final safeDay = preferredDay.clamp(1, lastDay).toInt();
+    return DateTime(year, month, safeDay);
+  }
+
+  String _pickerHint() {
+    switch (_period) {
+      case ReportPeriod.day:
+        return 'Toca para elegir otro día';
+      case ReportPeriod.week:
+        return 'Toca para elegir otra semana';
+      case ReportPeriod.month:
+        return 'Toca para elegir otro mes';
+    }
+  }
+
+  String _previousTooltip() {
+    switch (_period) {
+      case ReportPeriod.day:
+        return 'Día anterior';
+      case ReportPeriod.week:
+        return 'Semana anterior';
+      case ReportPeriod.month:
+        return 'Mes anterior';
+    }
+  }
+
+  String _nextTooltip() {
+    switch (_period) {
+      case ReportPeriod.day:
+        return 'Día siguiente';
+      case ReportPeriod.week:
+        return 'Semana siguiente';
+      case ReportPeriod.month:
+        return 'Mes siguiente';
+    }
   }
 
   Future<void> _exportPdf(ReportSummary summary) async {
@@ -260,7 +581,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
     switch (_period) {
       case ReportPeriod.day:
         return 'Exportar PDF del día';
-      case ReportPeriod.sevenDays:
+      case ReportPeriod.week:
         return 'Exportar PDF de la semana';
       case ReportPeriod.month:
         return 'Exportar PDF del mes';
@@ -271,8 +592,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
     switch (_period) {
       case ReportPeriod.day:
         return 'GANANCIA DEL DÍA';
-      case ReportPeriod.sevenDays:
-        return 'GANANCIA DE 7 DÍAS';
+      case ReportPeriod.week:
+        return 'GANANCIA DE LA SEMANA';
       case ReportPeriod.month:
         return 'GANANCIA DEL MES';
     }
@@ -282,12 +603,11 @@ class _SummaryScreenState extends State<SummaryScreen> {
     switch (_period) {
       case ReportPeriod.day:
         return _shortLongDate(_selectedDate);
-      case ReportPeriod.sevenDays:
+      case ReportPeriod.week:
         final lastIncluded = summary.range.end.subtract(
           const Duration(days: 1),
         );
-        return '${_shortDayMonth(summary.range.start)} - '
-            '${_shortDayMonth(lastIncluded)}';
+        return _weekLabel(summary.range.start, lastIncluded);
       case ReportPeriod.month:
         return '${_monthName(_selectedDate.month)} ${_selectedDate.year}';
     }
@@ -301,8 +621,18 @@ class _SummaryScreenState extends State<SummaryScreen> {
     return '${date.day} de ${_monthName(date.month).toLowerCase()} de ${date.year}';
   }
 
-  String _shortDayMonth(DateTime date) {
-    return '${date.day} ${_monthName(date.month).substring(0, 3).toLowerCase()}';
+  String _weekLabel(DateTime start, DateTime end) {
+    final startMonth = _monthName(start.month).substring(0, 3).toLowerCase();
+    final endMonth = _monthName(end.month).substring(0, 3).toLowerCase();
+
+    if (start.year != end.year) {
+      return '${start.day} $startMonth ${start.year} - '
+          '${end.day} $endMonth ${end.year}';
+    }
+    if (start.month != end.month) {
+      return '${start.day} $startMonth - ${end.day} $endMonth ${end.year}';
+    }
+    return '${start.day} - ${end.day} $endMonth ${end.year}';
   }
 
   String _monthName(int month) {
